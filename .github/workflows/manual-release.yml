@@ -3,12 +3,16 @@ name: Manual Release
 on:
   workflow_dispatch:
     inputs:
-      version:
-        description: "New version (leave empty to auto-bump patch version)"
-        required: false
-        type: string
+      version_mode:
+        description: "Version selection mode"
+        required: true
+        default: "auto"
+        type: choice
+        options:
+          - auto
+          - manual
       version_type:
-        description: "Version bump type (if version field is empty)"
+        description: "Auto-bump type (only used if mode is 'auto')"
         required: false
         default: "patch"
         type: choice
@@ -16,6 +20,10 @@ on:
           - patch
           - minor
           - major
+      manual_version:
+        description: "Manual version (only used if mode is 'manual')"
+        required: false
+        type: string
       release_notes:
         description: "Release notes (optional)"
         required: false
@@ -38,12 +46,13 @@ jobs:
         with:
           node-version: "18"
 
-      - name: Get current version and calculate new version
+      - name: Validate and process version
         id: version
         run: |
           # Get current version from package.json
           CURRENT_VERSION=$(node -p "require('./package.json').version")
           echo "current_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+          echo "📋 Current version: $CURRENT_VERSION"
 
           # Function to compare versions
           compare_versions() {
@@ -96,9 +105,22 @@ jobs:
             echo "$major.$minor.$patch"
           }
 
-          # Determine new version
-          if [ -n "${{ github.event.inputs.version }}" ]; then
-            NEW_VERSION="${{ github.event.inputs.version }}"
+          # Determine version based on mode
+          VERSION_MODE="${{ github.event.inputs.version_mode }}"
+
+          if [ "$VERSION_MODE" = "auto" ]; then
+            # Auto-bump version
+            VERSION_TYPE="${{ github.event.inputs.version_type }}"
+            NEW_VERSION=$(bump_version "$CURRENT_VERSION" "$VERSION_TYPE")
+            echo "🔄 Auto-bumping $VERSION_TYPE version: $CURRENT_VERSION → $NEW_VERSION"
+          else
+            # Manual version
+            NEW_VERSION="${{ github.event.inputs.manual_version }}"
+            
+            if [ -z "$NEW_VERSION" ]; then
+              echo "❌ Manual version cannot be empty when mode is 'manual'"
+              exit 1
+            fi
             
             # Validate version format
             if [[ ! $NEW_VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
@@ -117,10 +139,8 @@ jobs:
               echo "❌ New version ($NEW_VERSION) cannot be the same as current version ($CURRENT_VERSION)"
               exit 1
             fi
-          else
-            # Auto-bump version based on type
-            VERSION_TYPE="${{ github.event.inputs.version_type }}"
-            NEW_VERSION=$(bump_version "$CURRENT_VERSION" "$VERSION_TYPE")
+            
+            echo "✏️ Using manual version: $CURRENT_VERSION → $NEW_VERSION"
           fi
 
           echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
