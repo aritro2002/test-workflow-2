@@ -122,30 +122,64 @@ jobs:
 
           echo "✅ Updated package.json to version $NEW_VERSION"
 
-      - name: Commit version bump
+      - name: Create version bump branch and commit
+        id: version_bump
         run: |
           NEW_VERSION="${{ steps.version.outputs.new_version }}"
+          BRANCH_NAME="release/bump-version-to-$NEW_VERSION"
 
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
 
+          # Create and switch to new branch
+          git checkout -b "$BRANCH_NAME"
+
           git add package.json
           git commit -m "chore: bump version to $NEW_VERSION"
-          git push origin master
+          git push origin "$BRANCH_NAME"
 
-      - name: Create and push tag
-        id: tag
-        run: |
-          NEW_VERSION="${{ steps.version.outputs.new_version }}"
-          TAG_NAME="v$NEW_VERSION"
+          echo "branch_name=$BRANCH_NAME" >> $GITHUB_OUTPUT
+          echo "✅ Created branch $BRANCH_NAME and committed version bump"
 
-          git tag -a "$TAG_NAME" -m "Release $TAG_NAME"
-          git push origin "$TAG_NAME"
+      - name: Create Pull Request for version bump
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const newVersion = '${{ steps.version.outputs.new_version }}';
+            const branchName = '${{ steps.version_bump.outputs.branch_name }}';
 
-          echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
-          echo "✅ Created and pushed tag: $TAG_NAME"
+            const pr = await github.rest.pulls.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `chore: bump version to ${newVersion}`,
+              head: branchName,
+              base: 'master',
+              body: `## Version Bump to ${newVersion}
 
-      - name: Generate release notes
+            // This PR bumps the version from ${{ steps.version.outputs.current_version }} to ${newVersion}.
+
+            // **Changes:**
+            // - Updated \`package.json\` version field
+
+            // This PR was automatically created by the manual release workflow.
+
+            // Please review and merge this PR to proceed with the release process.`
+            //             });
+
+            //             console.log(`✅ Created PR: ${pr.data.html_url}`);
+
+            // Add PR info to summary
+            core.summary
+              .addHeading('📋 Version Bump PR Created')
+              .addTable([
+                [{data: 'Previous Version', header: true}, {data: 'New Version', header: true}, {data: 'Branch', header: true}],
+                ['${{ steps.version.outputs.current_version }}', newVersion, branchName]
+              ])
+              .addLink('View Pull Request', pr.data.html_url)
+              .addRaw('<br><br>**Next Steps:** Review and merge the PR above, then manually create the tag and release.')
+              .write();
+
+      - name: Generate release notes for manual use
         id: release_notes
         run: |
           NEW_VERSION="${{ steps.version.outputs.new_version }}"
@@ -171,40 +205,39 @@ jobs:
           **Full Changelog**: https://github.com/${{ github.repository }}/compare/$LAST_TAG...v$NEW_VERSION"
           fi
 
-          # Save release notes to file for multiline handling
+          # Save release notes to file for display
           echo "$RELEASE_NOTES" > release_notes.md
-          echo "✅ Generated release notes"
+          echo "✅ Generated release notes for manual use"
 
-      - name: Create GitHub Release (Draft)
+      - name: Display next steps
         uses: actions/github-script@v7
         with:
           script: |
             const fs = require('fs');
             const newVersion = '${{ steps.version.outputs.new_version }}';
-            const tagName = '${{ steps.tag.outputs.tag_name }}';
             const releaseNotes = fs.readFileSync('release_notes.md', 'utf8');
 
-            const release = await github.rest.repos.createRelease({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              tag_name: tagName,
-              name: `Release ${tagName}`,
-              body: releaseNotes,
-              draft: true,
-              prerelease: false
-            });
-
-            console.log(`✅ Created draft release: ${release.data.html_url}`);
-
-            // Add a summary
+            // Add detailed next steps to summary
             core.summary
-              .addHeading('🚀 Release Created Successfully')
+              .addHeading('📋 Version Bump PR Created - Next Steps')
               .addTable([
-                [{data: 'Previous Version', header: true}, {data: 'New Version', header: true}, {data: 'Tag', header: true}],
-                ['${{ steps.version.outputs.current_version }}', newVersion, tagName]
+                [{data: 'Previous Version', header: true}, {data: 'New Version', header: true}, {data: 'Branch', header: true}],
+                ['${{ steps.version.outputs.current_version }}', newVersion, '${{ steps.version_bump.outputs.branch_name }}']
               ])
-              .addLink('View Draft Release', release.data.html_url)
-              .write();
+              .addHeading('🔄 Manual Steps Required')
+              .addList([
+                '1. Review and merge the version bump PR above',
+                '2. After merging, create and push the release tag manually:',
+                '3. Create a GitHub release using the tag and release notes below'
+              ])
+              .addHeading('📝 Commands to run after PR merge')
+              .addCodeBlock(`git checkout master
+              git pull origin master
+              git tag -a v${newVersion} -m "Release v${newVersion}"
+              git push origin v${newVersion}`, 'bash')
+                            .addHeading('📄 Release Notes (copy for GitHub release)')
+                            .addCodeBlock(releaseNotes, 'markdown')
+                            .write();
 
       - name: Cleanup
         run: |
