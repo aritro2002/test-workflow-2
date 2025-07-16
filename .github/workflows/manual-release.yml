@@ -3,10 +3,6 @@ name: Manual Release
 on:
   workflow_dispatch:
     inputs:
-      base_tag:
-        description: "Base tag to version bump from (leave empty for latest)"
-        required: false
-        type: string
       version_mode:
         description: "Version selection mode"
         required: true
@@ -53,43 +49,13 @@ jobs:
         with:
           node-version: "18"
 
-      - name: Setup base tag and get version
-        id: setup
-        run: |
-          # Handle base tag selection
-          BASE_TAG="${{ github.event.inputs.base_tag }}"
-
-          if [ -n "$BASE_TAG" ]; then
-            echo "🏷️ Using base tag: $BASE_TAG"
-            # Checkout the specified tag
-            git checkout "$BASE_TAG"
-            # Get version from the tag
-            BASE_VERSION=$(node -p "require('./package.json').version")
-            echo "📋 Base version from tag $BASE_TAG: $BASE_VERSION"
-          else
-            echo "📋 Using latest commit as base"
-            # Get latest tag if available
-            LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
-            if [ -n "$LATEST_TAG" ]; then
-              echo "🏷️ Latest tag found: $LATEST_TAG"
-              git checkout "$LATEST_TAG"
-              BASE_VERSION=$(node -p "require('./package.json').version")
-              echo "📋 Base version from latest tag $LATEST_TAG: $BASE_VERSION"
-            else
-              echo "📋 No tags found, using current version"
-              BASE_VERSION=$(node -p "require('./package.json').version")
-            fi
-          fi
-
-          echo "base_version=$BASE_VERSION" >> $GITHUB_OUTPUT
-          echo "base_tag=${BASE_TAG:-$LATEST_TAG}" >> $GITHUB_OUTPUT
-
       - name: Validate and process version
         id: version
         run: |
-          BASE_VERSION="${{ steps.setup.outputs.base_version }}"
-          echo "current_version=$BASE_VERSION" >> $GITHUB_OUTPUT
-          echo "📋 Base version: $BASE_VERSION"
+          # Get current version from package.json
+          CURRENT_VERSION=$(node -p "require('./package.json').version")
+          echo "current_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+          echo "📋 Current version: $CURRENT_VERSION"
 
           # Function to bump version
           bump_version() {
@@ -125,8 +91,8 @@ jobs:
           if [ "$VERSION_MODE" = "auto" ]; then
             # Auto-bump version
             VERSION_TYPE="${{ github.event.inputs.version_type }}"
-            NEW_VERSION=$(bump_version "$BASE_VERSION" "$VERSION_TYPE")
-            echo "🔄 Auto-bumping $VERSION_TYPE version: $BASE_VERSION → $NEW_VERSION"
+            NEW_VERSION=$(bump_version "$CURRENT_VERSION" "$VERSION_TYPE")
+            echo "🔄 Auto-bumping $VERSION_TYPE version: $CURRENT_VERSION → $NEW_VERSION"
           else
             # Manual version
             NEW_VERSION="${{ github.event.inputs.manual_version }}"
@@ -136,11 +102,11 @@ jobs:
               exit 1
             fi
             
-            echo "✏️ Using manual version: $BASE_VERSION → $NEW_VERSION"
+            echo "✏️ Using manual version: $CURRENT_VERSION → $NEW_VERSION"
           fi
 
           echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
-          echo "✅ Version will be bumped from $BASE_VERSION to $NEW_VERSION"
+          echo "✅ Version will be bumped from $CURRENT_VERSION to $NEW_VERSION"
 
       - name: Update package.json version
         run: |
@@ -156,71 +122,16 @@ jobs:
 
           echo "✅ Updated package.json to version $NEW_VERSION"
 
-      - name: Create version bump branch and PR
-        id: pr
+      - name: Commit version bump
         run: |
           NEW_VERSION="${{ steps.version.outputs.new_version }}"
-          BASE_TAG="${{ steps.setup.outputs.base_tag }}"
-          BRANCH_NAME="release/v$NEW_VERSION"
 
-          # Configure git
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
 
-          # Create and switch to new branch from master
-          git checkout master
-          git checkout -b "$BRANCH_NAME"
-
-          # Add and commit the version change
           git add package.json
-          git commit -m "chore: bump version to $NEW_VERSION
-
-          Base tag: ${BASE_TAG:-latest}
-          Version bump: ${{ steps.version.outputs.current_version }} → $NEW_VERSION"
-
-          # Push the branch
-          git push origin "$BRANCH_NAME"
-
-          echo "branch_name=$BRANCH_NAME" >> $GITHUB_OUTPUT
-          echo "✅ Created branch: $BRANCH_NAME"
-
-      - name: Create Pull Request
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const newVersion = '${{ steps.version.outputs.new_version }}';
-            const branchName = '${{ steps.pr.outputs.branch_name }}';
-            const baseTag = '${{ steps.setup.outputs.base_tag }}';
-            const baseVersion = '${{ steps.version.outputs.current_version }}';
-
-            const pr = await github.rest.pulls.create({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              title: `Release v${newVersion}`,
-              head: branchName,
-              base: 'master',
-              body: `## Version Bump: ${baseVersion} → ${newVersion}
-
-            **Base Tag:** ${baseTag || 'latest'}
-            **Version Mode:** ${{ github.event.inputs.version_mode }}
-            **Bump Type:** ${{ github.event.inputs.version_type || 'manual' }}
-
-            ### Changes
-            - Updated package.json version to ${newVersion}
-
-            ### Next Steps
-            1. Review and merge this PR
-            2. The release tag and draft release will be created automatically
-
-            ---
-            *This PR was created automatically by the Manual Release workflow*`
-            });
-
-            console.log(`✅ Created PR #${pr.data.number}: ${pr.data.html_url}`);
-
-            // Store PR info for later steps
-            core.setOutput('pr_number', pr.data.number);
-            core.setOutput('pr_url', pr.data.html_url);
+          git commit -m "chore: bump version to $NEW_VERSION"
+          git push origin master
 
       - name: Create and push tag
         id: tag
@@ -286,19 +197,13 @@ jobs:
             console.log(`✅ Created draft release: ${release.data.html_url}`);
 
             // Add a summary
-            const prUrl = '${{ steps.pr.outputs.pr_url }}';
             core.summary
-              .addHeading('🚀 Release Process Initiated')
+              .addHeading('🚀 Release Created Successfully')
               .addTable([
-                [{data: 'Base Version', header: true}, {data: 'New Version', header: true}, {data: 'Tag', header: true}, {data: 'Base Tag', header: true}],
-                ['${{ steps.version.outputs.current_version }}', newVersion, tagName, '${{ steps.setup.outputs.base_tag || "latest" }}']
+                [{data: 'Previous Version', header: true}, {data: 'New Version', header: true}, {data: 'Tag', header: true}],
+                ['${{ steps.version.outputs.current_version }}', newVersion, tagName]
               ])
-              .addHeading('📋 Next Steps')
-              .addList([
-                `Review and merge the version bump PR: ${prUrl}`,
-                `Draft release created: ${release.data.html_url}`,
-                'After merging PR, publish the draft release'
-              ])
+              .addLink('View Draft Release', release.data.html_url)
               .write();
 
       - name: Cleanup
