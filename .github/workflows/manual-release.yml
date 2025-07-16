@@ -128,7 +128,7 @@ jobs:
 
           git add package.json
           git commit -m "chore: bump version to $NEW_VERSION"
-          git push origin main
+          git push origin master
 
       - name: Create and push tag
         id: tag
