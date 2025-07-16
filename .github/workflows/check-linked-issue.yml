@@ -33,7 +33,7 @@ jobs:
             ];
 
             let hasLinkedIssue = false;
-            let linkedIssues = [];
+            let linkedIssues = new Set(); // Use Set to avoid duplicates
 
             // Check PR body and title for issue references
             const textToCheck = `${prTitle} ${prBody}`;
@@ -43,29 +43,85 @@ jobs:
               for (const match of matches) {
                 const issueNumber = match[1];
                 if (issueNumber) {
-                  linkedIssues.push(issueNumber);
+                  linkedIssues.add(issueNumber);
                   hasLinkedIssue = true;
                 }
               }
             }
 
-            // Also check if PR is linked to issues via GitHub's linking feature
+            // Check if PR is currently linked to issues via GitHub's API
             try {
-              const { data: timelineEvents } = await github.rest.issues.listEventsForTimeline({
+              // Get the PR's linked issues using GraphQL API for more accurate results
+              const query = `
+                query($owner: String!, $repo: String!, $number: Int!) {
+                  repository(owner: $owner, name: $repo) {
+                    pullRequest(number: $number) {
+                      closingIssuesReferences(first: 10) {
+                        nodes {
+                          number
+                          title
+                        }
+                      }
+                    }
+                  }
+                }
+              `;
+              
+              const variables = {
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                issue_number: context.issue.number,
-              });
+                number: context.issue.number
+              };
               
-              const connectedEvents = timelineEvents.filter(event => 
-                event.event === 'connected' || event.event === 'cross-referenced'
-              );
+              const result = await github.graphql(query, variables);
+              const closingIssues = result.repository.pullRequest.closingIssuesReferences.nodes;
               
-              if (connectedEvents.length > 0) {
+              if (closingIssues && closingIssues.length > 0) {
                 hasLinkedIssue = true;
+                const issueNumbers = closingIssues.map(issue => issue.number);
+                issueNumbers.forEach(num => linkedIssues.add(num.toString()));
+                console.log(`Found ${closingIssues.length} linked issue(s) via GitHub API: ${issueNumbers.join(', ')}`);
               }
             } catch (error) {
-              console.log('Could not fetch timeline events:', error.message);
+              console.log('Could not fetch linked issues via GraphQL:', error.message);
+              
+              // Fallback: Check timeline events but with better logic for current state
+              try {
+                const { data: timelineEvents } = await github.rest.issues.listEventsForTimeline({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.issue.number,
+                });
+                
+                // Track connected and disconnected events to find current state
+                const connectionEvents = timelineEvents.filter(event => 
+                  event.event === 'connected' || event.event === 'disconnected'
+                ).sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+                
+                // Check the current connection state by looking at the latest events per issue
+                const currentConnections = new Map();
+                
+                for (const event of connectionEvents) {
+                  if (event.source && event.source.issue) {
+                    const issueId = event.source.issue.id;
+                    if (event.event === 'connected') {
+                      currentConnections.set(issueId, true);
+                    } else if (event.event === 'disconnected') {
+                      currentConnections.set(issueId, false);
+                    }
+                  }
+                }
+                
+                // Check if any issues are currently connected
+                const hasCurrentConnections = Array.from(currentConnections.values()).some(connected => connected);
+                
+                if (hasCurrentConnections) {
+                  hasLinkedIssue = true;
+                  console.log('Found currently linked issues via timeline events fallback');
+                }
+              } catch (timelineError) {
+                console.log('Could not fetch timeline events:', timelineError.message);
+              }
             }
 
             if (!hasLinkedIssue) {
@@ -78,8 +134,9 @@ jobs:
               
               Example: "Fixes #123" or "Closes #456"`);
             } else {
-              console.log(`✅ PR is linked to issue(s): ${linkedIssues.join(', ')}`);
-              core.notice(`✅ Pull request is properly linked to issue(s): ${linkedIssues.join(', ')}`);
+              const issueList = Array.from(linkedIssues).join(', ');
+              console.log(`✅ PR is linked to issue(s): ${issueList}`);
+              core.notice(`✅ Pull request is properly linked to issue(s): ${issueList}`);
             }
 
       - name: Add comment if no linked issue
@@ -93,7 +150,7 @@ jobs:
               repo: context.repo.repo,
               body: `## ❌ Missing Linked Issue
               
-              This pull request needs to be linked to an issue before it can be merged.
+              This pull request needs to be linked to at least one issue before it can be merged.
               
               ### How to link an issue:
               
@@ -101,15 +158,19 @@ jobs:
                  - \`Fixes #123\`
                  - \`Closes #456\`
                  - \`Resolves #789\`
+                 - \`Fixes #123, #456, and #789\` (multiple issues)
               
               2. **Reference issue in PR title or description:**
                  - \`#123\`
                  - \`Issue #456\`
+                 - \`Addresses #123 and #456\` (multiple issues)
               
               3. **Use GitHub's UI:**
                  - Go to the "Development" section in the right sidebar
                  - Click "Link an issue"
-                 - Select the relevant issue
+                 - Select the relevant issue(s)
               
-              Once you've linked an issue, this check will automatically pass! 🚀`
+              💡 **Tip:** You can link multiple issues using any combination of the above methods!
+              
+              Once you've linked at least one issue, this check will automatically pass! 🚀`
             })
