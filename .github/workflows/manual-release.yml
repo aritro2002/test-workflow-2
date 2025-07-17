@@ -154,13 +154,44 @@ jobs:
           echo "✅ Created branch $BRANCH_NAME and committed version bump"
 
       - name: Create Pull Request (with fallback)
+        id: cpr
+        continue-on-error: true
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.GH_PAT || github.token }}
+          commit-message: "chore: bump version to ${{ steps.version.outputs.new_version }}"
+          committer: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>
+          author: ${{ github.actor }} <${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com>
+          branch: release/bump-version-to-${{ steps.version.outputs.new_version }}
+          delete-branch: true
+          title: "chore: bump version to ${{ steps.version.outputs.new_version }}"
+          body: |
+            ## Version Bump to ${{ steps.version.outputs.new_version }}
+
+            This PR bumps the version from ${{ steps.version.outputs.current_version }} to ${{ steps.version.outputs.new_version }}.
+
+            **Changes:**
+            - Updated `package.json` version field
+
+            This PR was automatically created by the manual release workflow.
+
+            Please review and merge this PR to proceed with the release process.
+          labels: |
+            release
+            automated
+          draft: false
+
+      - name: Display PR Creation Results
         uses: actions/github-script@v7
         with:
           script: |
             const newVersion = '${{ steps.version.outputs.new_version }}';
+            const prNumber = '${{ steps.cpr.outputs.pull-request-number }}';
+            const prUrl = '${{ steps.cpr.outputs.pull-request-url }}';
+            const prOperation = '${{ steps.cpr.outputs.pull-request-operation }}';
             const branchName = '${{ steps.version_bump.outputs.branch_name }}';
             const repoUrl = `https://github.com/${{ github.repository }}`;
-            const prUrl = `${repoUrl}/compare/master...${branchName}?expand=1`;
+            const manualPrUrl = `${repoUrl}/compare/master...${branchName}?expand=1`;
 
             const prBody = `## Version Bump to ${newVersion}
 
@@ -169,45 +200,28 @@ jobs:
             **Changes:**
             - Updated \`package.json\` version field
 
-            This PR was automatically created by the manual release workflow.
+            This PR was created following the manual release workflow.
 
             Please review and merge this PR to proceed with the release process.`;
 
-            try {
-              // Try to create PR automatically
-              const pr = await github.rest.pulls.create({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                title: `chore: bump version to ${newVersion}`,
-                head: branchName,
-                base: 'master',
-                body: prBody
-              });
-
-              console.log(`✅ Successfully created PR automatically: ${pr.data.html_url}`);
-
+            if (prNumber) {
+              console.log(`✅ Successfully ${prOperation} PR #${prNumber}: ${prUrl}`);
+              
               // Success summary
               core.summary
                 .addHeading('🎉 Version Bump PR Created Successfully')
                 .addTable([
-                  [{data: 'Previous Version', header: true}, {data: 'New Version', header: true}, {data: 'Branch', header: true}],
-                  ['${{ steps.version.outputs.current_version }}', newVersion, branchName]
+                  [{data: 'Previous Version', header: true}, {data: 'New Version', header: true}, {data: 'PR Number', header: true}, {data: 'Operation', header: true}],
+                  ['${{ steps.version.outputs.current_version }}', newVersion, `#${prNumber}`, prOperation]
                 ])
-                .addLink('View Pull Request', pr.data.html_url)
-                .addRaw('<br><br>**Next Steps:** Review and merge the PR above, then manually create the tag and release.')
+                .addLink('View Pull Request', prUrl)
+                .addRaw('<br><br>**Next Steps:** Review and merge the PR above, then the release will be ready!')
                 .write();
-
-            } catch (error) {
-              console.log(`⚠️ Failed to create PR automatically: ${error.message}`);
-              console.log(`🔗 Create PR manually at: ${prUrl}`);
-
-              // Detailed diagnostic information
-              console.log(`🔍 Diagnostic Information:`);
-              console.log(`- Repository: ${{ github.repository }}`);
-              console.log(`- Token type: ${{ secrets.GH_PAT && 'Personal Access Token' || 'GitHub Token' }}`);
-              console.log(`- Workflow permissions: contents=write, pull-requests=write`);
-
-              // Fallback summary with manual instructions and solutions
+            } else {
+              console.log(`⚠️ Automatic PR creation failed or no changes detected`);
+              console.log(`🔗 Create PR manually at: ${manualPrUrl}`);
+              
+              // Fallback summary with manual instructions
               core.summary
                 .addHeading('📋 Version Bump Branch Created')
                 .addTable([
@@ -215,7 +229,7 @@ jobs:
                   ['${{ steps.version.outputs.current_version }}', newVersion, branchName]
                 ])
                 .addHeading('⚠️ Automatic PR Creation Failed')
-                .addRaw(`<p><strong>Reason:</strong> ${error.message}</p>`)
+                .addRaw(`<p><strong>Reason:</strong> The peter-evans/create-pull-request action failed or detected no changes.</p>`)
                 .addHeading('🔧 How to Enable Automatic PR Creation')
                 .addRaw(`<p>To enable automatic PR creation, you have several options:</p>`)
                 .addList([
@@ -225,7 +239,7 @@ jobs:
                 ])
                 .addHeading('🔗 Create Pull Request Manually')
                 .addRaw(`<p><strong>Branch pushed successfully!</strong> Please create the PR manually using the link below.</p>`)
-                .addLink('Click here to create the PR', prUrl)
+                .addLink('Click here to create the PR', manualPrUrl)
                 .addHeading('📝 Suggested PR Details')
                 .addRaw(`<p><strong>Title:</strong> <code>chore: bump version to ${newVersion}</code></p>`)
                 .addRaw(`<p><strong>Description:</strong></p>`)
@@ -312,13 +326,14 @@ jobs:
         with:
           script: |
             const newVersion = '${{ steps.version.outputs.new_version }}';
+            const branchName = '${{ steps.cpr.outputs.pull-request-branch }}';
 
             // Add detailed next steps to summary
             core.summary
               .addHeading('📋 Next Steps - Review and Publish')
               .addTable([
                 [{data: 'Previous Version', header: true}, {data: 'New Version', header: true}, {data: 'Branch', header: true}],
-                ['${{ steps.version.outputs.current_version }}', newVersion, '${{ steps.version_bump.outputs.branch_name }}']
+                ['${{ steps.version.outputs.current_version }}', newVersion, branchName || 'release/bump-version-to-' + newVersion]
               ])
               .addHeading('🔄 Manual Steps Required')
               .addList([
