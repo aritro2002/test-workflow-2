@@ -112,23 +112,29 @@ jobs:
           # Determine version based on mode
           VERSION_MODE="${{ github.event.inputs.version_mode }}"
 
+          echo "🔍 Debug: VERSION_MODE = $VERSION_MODE"
+          echo "🔍 Debug: Manual version input = '${{ github.event.inputs.manual_version }}'"
+
           if [ "$VERSION_MODE" = "auto" ]; then
             # Auto-bump version
             VERSION_TYPE="${{ github.event.inputs.version_type }}"
             NEW_VERSION=$(bump_version "$CURRENT_VERSION" "$VERSION_TYPE")
             echo "🔄 Auto-bumping $VERSION_TYPE version: $CURRENT_VERSION → $NEW_VERSION"
-          else
+          elif [ "$VERSION_MODE" = "manual" ]; then
             # Manual version
             NEW_VERSION="${{ github.event.inputs.manual_version }}"
             
-            if [ -z "$NEW_VERSION" ]; then
+            echo "🔍 Debug: Processing manual version: '$NEW_VERSION'"
+            
+            if [ -z "$NEW_VERSION" ] || [ "$NEW_VERSION" = "null" ]; then
               echo "❌ Manual version cannot be empty when mode is 'manual'"
+              echo "   Please provide a valid version number (e.g., 1.2.3)"
               exit 1
             fi
             
             # Validate version format (basic semver check)
             if ! [[ "$NEW_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-              echo "❌ Invalid version format: $NEW_VERSION"
+              echo "❌ Invalid version format: '$NEW_VERSION'"
               echo "   Version must follow semantic versioning format (e.g., 1.2.3)"
               exit 1
             fi
@@ -141,8 +147,13 @@ jobs:
               echo "   New version must be equal to or higher than the current version"
               echo "   Current: $CURRENT_VERSION"
               echo "   Provided: $NEW_VERSION"
+              echo "   Please provide a version >= $CURRENT_VERSION"
               exit 1
             fi
+          else
+            echo "❌ Invalid version mode: $VERSION_MODE"
+            echo "   Valid modes are: 'auto' or 'manual'"
+            exit 1
           fi
 
           echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
