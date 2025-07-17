@@ -156,19 +156,18 @@ jobs:
               base: 'master',
               body: `## Version Bump to ${newVersion}
 
-            // This PR bumps the version from ${{ steps.version.outputs.current_version }} to ${newVersion}.
+            This PR bumps the version from ${{ steps.version.outputs.current_version }} to ${newVersion}.
 
-            // **Changes:**
-            // - Updated \`package.json\` version field
+            **Changes:**
+            - Updated \`package.json\` version field
 
-            // This PR was automatically created by the manual release workflow.
+            This PR was automatically created by the manual release workflow.
 
-            // Please review and merge this PR to proceed with the release process.`
-            //             });
+            Please review and merge this PR to proceed with the release process.`
+            });
 
-            //             console.log(`✅ Created PR: ${pr.data.html_url}`);
+            console.log(`✅ Created PR: ${pr.data.html_url}`);
 
-            // Add PR info to summary
             core.summary
               .addHeading('📋 Version Bump PR Created')
               .addTable([
