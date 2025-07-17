@@ -153,41 +153,41 @@ jobs:
           echo "branch_name=$BRANCH_NAME" >> $GITHUB_OUTPUT
           echo "✅ Created branch $BRANCH_NAME and committed version bump"
 
-      - name: Create Pull Request for version bump
+      - name: Prepare PR information
         uses: actions/github-script@v7
         with:
           script: |
             const newVersion = '${{ steps.version.outputs.new_version }}';
             const branchName = '${{ steps.version_bump.outputs.branch_name }}';
+            const repoUrl = `https://github.com/${{ github.repository }}`;
+            const prUrl = `${repoUrl}/compare/master...${branchName}?expand=1`;
 
-            const pr = await github.rest.pulls.create({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              title: `chore: bump version to ${newVersion}`,
-              head: branchName,
-              base: 'master',
-              body: `## Version Bump to ${newVersion}
-
-            This PR bumps the version from ${{ steps.version.outputs.current_version }} to ${newVersion}.
-
-            **Changes:**
-            - Updated \`package.json\` version field
-
-            This PR was automatically created by the manual release workflow.
-
-            Please review and merge this PR to proceed with the release process.`
-            });
-
-            console.log(`✅ Created PR: ${pr.data.html_url}`);
+            console.log(`✅ Version bump branch created: ${branchName}`);
+            console.log(`🔗 Create PR manually at: ${prUrl}`);
 
             core.summary
-              .addHeading('📋 Version Bump PR Created')
+              .addHeading('📋 Version Bump Branch Created')
               .addTable([
                 [{data: 'Previous Version', header: true}, {data: 'New Version', header: true}, {data: 'Branch', header: true}],
                 ['${{ steps.version.outputs.current_version }}', newVersion, branchName]
               ])
-              .addLink('View Pull Request', pr.data.html_url)
-              .addRaw('<br><br>**Next Steps:** Review and merge the PR above, then manually create the tag and release.')
+              .addHeading('🔗 Create Pull Request Manually')
+              .addRaw(`<p><strong>Branch pushed successfully!</strong> GitHub Actions cannot create PRs automatically due to security restrictions.</p>`)
+              .addLink('Click here to create the PR', prUrl)
+              .addHeading('📝 Suggested PR Details')
+              .addRaw(`<p><strong>Title:</strong> <code>chore: bump version to ${newVersion}</code></p>`)
+              .addRaw(`<p><strong>Description:</strong></p>`)
+              .addCodeBlock(`## Version Bump to ${newVersion}
+
+              This PR bumps the version from ${{ steps.version.outputs.current_version }} to ${newVersion}.
+
+              **Changes:**
+              - Updated \`package.json\` version field
+
+              This PR was created following the manual release workflow.
+
+              Please review and merge this PR to proceed with the release process.`, 'markdown')
+              .addRaw('<br><br>**Next Steps:** Create and merge the PR above, then manually create the tag and release.')
               .write();
 
       - name: Generate release notes for manual use
