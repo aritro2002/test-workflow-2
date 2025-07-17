@@ -120,7 +120,7 @@ jobs:
           # Determine version based on mode
           VERSION_MODE="${{ github.event.inputs.version_mode }}"
 
-          echo "🔍 Debug: VERSION_MODE = $VERSION_MODE"
+          echo "🔍 Debug: VERSION_MODE = '$VERSION_MODE'"
           echo "🔍 Debug: Manual version input = '${{ github.event.inputs.manual_version }}'"
 
           if [ "$VERSION_MODE" = "auto" ]; then
@@ -135,23 +135,27 @@ jobs:
             echo "🔍 Debug: Processing manual version: '$NEW_VERSION'"
             
             if [ -z "$NEW_VERSION" ] || [ "$NEW_VERSION" = "null" ]; then
-              echo "❌ Manual version cannot be empty when mode is 'manual'"
+              echo "❌ VALIDATION FAILED: Manual version cannot be empty when mode is 'manual'"
               echo "   Please provide a valid version number (e.g., 1.2.3)"
+              echo "🚫 Workflow stopped due to validation failure."
               exit 1
             fi
             
             # Validate version format (basic semver check)
             if ! [[ "$NEW_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-              echo "❌ Invalid version format: '$NEW_VERSION'"
+              echo "❌ VALIDATION FAILED: Invalid version format: '$NEW_VERSION'"
               echo "   Version must follow semantic versioning format (e.g., 1.2.3)"
+              echo "🚫 Workflow stopped due to validation failure."
               exit 1
             fi
             
+            echo "🔍 Debug: About to validate version comparison..."
+            
             # Check if new version is not lower than current version
             if is_version_valid "$NEW_VERSION" "$CURRENT_VERSION"; then
-              echo "✏️ Using manual version: $CURRENT_VERSION → $NEW_VERSION"
+              echo "✅ Validation passed: Using manual version: $CURRENT_VERSION → $NEW_VERSION"
             else
-              echo "❌ VALIDATION FAILED: Manual version $NEW_VERSION is lower than current version $CURRENT_VERSION"
+              echo "❌ VALIDATION FAILED: Manual version $NEW_VERSION is LOWER than current version $CURRENT_VERSION"
               echo "   New version must be equal to or higher than the current version"
               echo "   Current: $CURRENT_VERSION"
               echo "   Provided: $NEW_VERSION"
@@ -161,8 +165,9 @@ jobs:
               exit 1
             fi
           else
-            echo "❌ Invalid version mode: $VERSION_MODE"
+            echo "❌ VALIDATION FAILED: Invalid version mode: '$VERSION_MODE'"
             echo "   Valid modes are: 'auto' or 'manual'"
+            echo "🚫 Workflow stopped due to validation failure."
             exit 1
           fi
 
