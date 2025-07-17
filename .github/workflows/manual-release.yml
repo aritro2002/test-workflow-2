@@ -85,28 +85,36 @@ jobs:
             echo "$major.$minor.$patch"
           }
 
-          # Function to compare versions (returns 0 if v1 >= v2, 1 if v1 < v2)
-          version_compare() {
-            local v1=$1
-            local v2=$2
+          # Function to compare versions (returns 0 if new_version >= current_version, 1 if new_version < current_version)
+          is_version_valid() {
+            local new_version=$1
+            local current_version=$2
+            
+            echo "🔍 Debug: Comparing versions - new: $new_version, current: $current_version"
             
             # Split versions into arrays
-            IFS='.' read -ra V1_PARTS <<< "$v1"
-            IFS='.' read -ra V2_PARTS <<< "$v2"
+            IFS='.' read -ra NEW_PARTS <<< "$new_version"
+            IFS='.' read -ra CURRENT_PARTS <<< "$current_version"
             
             # Compare major, minor, patch
             for i in 0 1 2; do
-              local part1=${V1_PARTS[$i]:-0}
-              local part2=${V2_PARTS[$i]:-0}
+              local new_part=${NEW_PARTS[$i]:-0}
+              local current_part=${CURRENT_PARTS[$i]:-0}
               
-              if [ "$part1" -gt "$part2" ]; then
-                return 0  # v1 > v2
-              elif [ "$part1" -lt "$part2" ]; then
-                return 1  # v1 < v2
+              echo "🔍 Debug: Comparing part $i - new: $new_part, current: $current_part"
+              
+              if [ "$new_part" -gt "$current_part" ]; then
+                echo "🔍 Debug: New version is higher (part $i: $new_part > $current_part)"
+                return 0  # new_version > current_version (valid)
+              elif [ "$new_part" -lt "$current_part" ]; then
+                echo "🔍 Debug: New version is lower (part $i: $new_part < $current_part)"
+                return 1  # new_version < current_version (invalid)
               fi
+              # If equal, continue to next part
             done
             
-            return 0  # v1 == v2
+            echo "🔍 Debug: Versions are equal"
+            return 0  # new_version == current_version (valid)
           }
 
           # Determine version based on mode
@@ -140,14 +148,16 @@ jobs:
             fi
             
             # Check if new version is not lower than current version
-            if version_compare "$NEW_VERSION" "$CURRENT_VERSION"; then
+            if is_version_valid "$NEW_VERSION" "$CURRENT_VERSION"; then
               echo "✏️ Using manual version: $CURRENT_VERSION → $NEW_VERSION"
             else
-              echo "❌ Manual version $NEW_VERSION is lower than current version $CURRENT_VERSION"
+              echo "❌ VALIDATION FAILED: Manual version $NEW_VERSION is lower than current version $CURRENT_VERSION"
               echo "   New version must be equal to or higher than the current version"
               echo "   Current: $CURRENT_VERSION"
               echo "   Provided: $NEW_VERSION"
               echo "   Please provide a version >= $CURRENT_VERSION"
+              echo ""
+              echo "🚫 Workflow stopped due to validation failure. No PR, tag, or release will be created."
               exit 1
             fi
           else
