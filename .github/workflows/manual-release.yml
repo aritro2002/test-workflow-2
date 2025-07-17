@@ -131,6 +131,18 @@ jobs:
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
 
+          # Check if branch exists remotely and delete it
+          if git ls-remote --exit-code --heads origin "$BRANCH_NAME" >/dev/null 2>&1; then
+            echo "🗑️ Branch $BRANCH_NAME already exists remotely, deleting it"
+            git push origin --delete "$BRANCH_NAME" || true
+          fi
+
+          # Check if branch exists locally and delete it
+          if git show-ref --verify --quiet "refs/heads/$BRANCH_NAME"; then
+            echo "🗑️ Branch $BRANCH_NAME exists locally, deleting it"
+            git branch -D "$BRANCH_NAME" || true
+          fi
+
           # Create and switch to new branch
           git checkout -b "$BRANCH_NAME"
 
